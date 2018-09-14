@@ -34,7 +34,6 @@
 // global variables
 //***********************************************************************************
 
-int sleep_block_counter[4];
 
 //***********************************************************************************
 // function prototypes
@@ -59,6 +58,7 @@ void unblockSleepMode(int8_t minimumMode){
 	//If minmode is greater than 0, decrement
 	//If minmode is 0, go into infinite loop, blocking all execution (for debugging, might disable this later)
 	//Enable interrupts
+
 	CORE_ATOMIC_IRQ_DISABLE();
 	if(sleep_block_counter[minimumMode] > 0){
 		sleep_block_counter[minimumMode]--;
@@ -68,7 +68,7 @@ void unblockSleepMode(int8_t minimumMode){
 	CORE_ATOMIC_IRQ_ENABLE();
 }
 
-void sleep(void){
+void sleep(){
 	if(sleep_block_counter[0]>0){		//stay in EM0
 		return;
 	}

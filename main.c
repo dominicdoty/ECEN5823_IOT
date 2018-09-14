@@ -1,11 +1,11 @@
 
 /***********************************************************************************************//**
  * \file   main.c
- * \brief  Silicon Labs Empty Example Project
+ * \brief  D.Doty Energy Modes Assignment
  *
- * This example demonstrates the bare minimum needed for a Blue Gecko C application
- * that allows Over-the-Air Device Firmware Upgrading (OTA DFU). The application
- * starts advertising after boot and restarts advertising after a connection is closed.
+ * Project for ECEN 5823 - Managing Energy Modes
+ * Based on the Silicon Labs Example Code
+ *
  ***************************************************************************************************
  * <b> (C) Copyright 2016 Silicon Labs, http://www.silabs.com</b>
  ***************************************************************************************************
@@ -17,8 +17,6 @@
 /* Board headers */
 #include "init_mcu.h"
 #include "init_board.h"
-#include "ble-configuration.h"
-#include "board_features.h"
 
 /* Bluetooth stack headers */
 #include "bg_types.h"
@@ -27,7 +25,6 @@
 
 /* Libraries containing default Gecko configuration values */
 #include "em_emu.h"
-//#include "em_cmu.h"
 
 /* Device initialization header */
 #include "hal-config.h"
@@ -121,14 +118,13 @@ uint8_t boot_to_dfu = 0;
 //***********************************************************************************
 // functions
 //***********************************************************************************
-/*
+
 void LETIMER0_IRQHandler(){
 	//disable peripheral call interrupt
 	CORE_ATOMIC_IRQ_DISABLE();
 
 	//copy the interrupt register (auto clears flag)
-	uint32_t intreg = LETIMER0->IF;
-	LETIMER0->IFC = intreg;
+	uint32_t intreg = LETIMER0->IFC;
 
 	//determine which interrupt triggered
 	if(intreg & LETIMER_IFC_UF){
@@ -143,7 +139,6 @@ void LETIMER0_IRQHandler(){
 	//enable peripheral call interrupt
 	CORE_ATOMIC_IRQ_ENABLE();
 }
-*/
 
 //***********************************************************************************
 // main
@@ -171,20 +166,21 @@ int main(void)
   gecko_init(&config);
 
   // Calculate Prescaler
-  uint64_t frac = (PERIOD*FREQ)/(65535*1000);	//Calculate the fraction of desired counts to max timer counts
-  uint32_t temp = frac;
-  uint8_t prescale = 0;
-  while(temp != 0){			//bit shift right until fraction value is zero
-	  temp = temp >> 1;		//this rounds the value up to the next power of two
+  // Note that compiler optimization just deletes this whole section and stores the values in temporary variables
+  // You will not see this run in debugger. The variables also will not show up. But the registers do get set correctly
+  long int frac = (PERIOD*FREQ)/(65535*1000);	//Calculate the fraction of desired counts to max timer counts
+  int prescale = 0;
+  while(frac != 0){			//bit shift right until fraction value is zero
+	  frac = frac >> 1;		//this rounds the value up to the next power of two
 	  prescale++;			//prescale counts the number of divisions by two required to get the desired period in the LETIMER max counts
   }							//prescale register translates this value to powers of two (ie 0->div1, 1->div2, 2->div4, etc.)
 
   // Calculate Timer Comp Values
-  const uint16_t period_cnts = (PERIOD*FREQ)/((1<<prescale) *1000);
-  const uint16_t pulse_cnts = (PULSE_LENGTH*FREQ)/((1<<prescale) *1000);
+  uint16_t period_cnts = (PERIOD*FREQ)/((1<<prescale) *1000);
+  uint16_t pulse_cnts = (PULSE_LENGTH*FREQ)/((1<<prescale) *1000);
 
   // Configure CMU for LETIMER0
-#if CLOCK == cmuSelect_LFXO		//if because ULFRCO is automatically enabled
+#if CLOCK == cmuSelect_LFXO						//if because ULFRCO is automatically enabled
   CMU_OscillatorEnable(CLOCK, true, true);		//ENABLE OSCILLATOR
 #endif
   CMU_ClockSelectSet(cmuClock_LFA, CLOCK);		//SELECT OSC ONTO BUS
@@ -194,7 +190,9 @@ int main(void)
 
 
   // Initialize LETIMER0
-//  MSC->CTRL = MSC_CTRL_IFCREADCLEAR;	//Set the memory controller to auto clear interrupt flags after reading them
+  MSC->LOCK = MSC_UNLOCK_CODE;			//Unlock the memory controller registers to allow writing
+  MSC->CTRL |= MSC_CTRL_IFCREADCLEAR;	//Set the memory controller to auto clear interrupt flags after reading them
+  MSC->LOCK = 1;						//Re-Lock the memory controller registers
   LETIMER0->CMD = LETIMER_CMD_STOP;		//Make sure LETIMER0 is stopped
 
   //Set up LETIMER0 config struct
@@ -207,24 +205,18 @@ int main(void)
   LETIMER_Init(LETIMER0,&timer0);				//Initialize timer with set values from above
 
   // Interrupt Configuration
-//  LETIMER0->IFC = LETIMER_IFC_UF|LETIMER_IFC_COMP1;		//clear int flags
-//  LETIMER0->IEN = LETIMER_IEN_UF || LETIMER_IEN_COMP1;	//enable int flags
-//  blockSleepMode(SLEEPMODE);							//set max sleep mode
-//  NVIC_EnableIRQ(LETIMER0_IRQn);						//enable interrupt vector
+  LETIMER0->IFC = LETIMER_IFC_UF | LETIMER_IFC_COMP1;	//clear int flags
+  LETIMER0->IEN = LETIMER_IEN_UF | LETIMER_IEN_COMP1;	//enable int flags
+  blockSleepMode(SLEEPMODE);							//set max sleep mode
+  NVIC_EnableIRQ(LETIMER0_IRQn);						//enable interrupt vector
 
   // Start the Timer
   LETIMER0->CMD = LETIMER_CMD_START;	//start the LETIMER0
-  uint32_t sync = (LETIMER0->SYNCBUSY) & 1;
-  while(sync);			//twiddle thumbs while LETIMER registers sync
+  while((LETIMER0->SYNCBUSY) & 1);		//twiddle thumbs while LETIMER registers sync
 
   // Sleep
   while (1) {
-	  for(int i=0; i++; i<100){
-	  GPIO_PinOutSet(LED0_port, LED0_pin);
-  	  }
-	  for(int i=0; i++; i<100){
-	  GPIO_PinOutClear(LED0_port, LED0_pin);
-	  }
+	  sleep();
   }
 }
 

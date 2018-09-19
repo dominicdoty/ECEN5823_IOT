@@ -1,9 +1,9 @@
 
 /***********************************************************************************************//**
  * \file   main.c
- * \brief  D.Doty Energy Modes Assignment
+ * \brief  D.Doty
  *
- * Project for ECEN 5823 - Managing Energy Modes
+ * Project for ECEN 5823
  * Based on the Silicon Labs Example Code
  *
  ***************************************************************************************************
@@ -81,6 +81,7 @@ uint8_t boot_to_dfu = 0;
 #include "src/sleep.h"
 #include "em_letimer.h"
 #include "src/letimer.h"
+#include "src/msc.h"
 
 //***********************************************************************************
 // defined files
@@ -101,6 +102,19 @@ uint8_t boot_to_dfu = 0;
 // functions
 //***********************************************************************************
 
+void LETIMER0_IRQHandler(){
+	//disable peripheral call interrupt
+	CORE_ATOMIC_IRQ_DISABLE();
+
+	//copy the interrupt register (auto clears flag)
+	uint32_t intreg = LETIMER0->IFC;
+
+	GPIO_PinOutSet(LED0_port, LED0_pin);
+	GPIO_PinOutClear(LED0_port, LED0_pin);
+
+	//enable peripheral call interrupt
+	CORE_ATOMIC_IRQ_ENABLE();
+}
 
 //***********************************************************************************
 // main
@@ -128,7 +142,18 @@ int main(void)
   gecko_init(&config);
 
   // Initialize LETIMER
-  letimer_init();
+  struct letimer_config fig =
+  {
+  	.block_sleep = EM3,	//sleep mode you cannot go down to
+  	.period = 3000,		//mS
+  	.pulse_width = 0,	//mS
+	.oneshot = false
+  };
+
+  letimer_init(fig);
+
+  // MSC setup
+  msc_ifc_autoclear();
 
   // Sleep
   while (1) {

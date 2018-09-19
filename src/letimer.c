@@ -25,34 +25,40 @@
 //***********************************************************************************
 // functions
 //***********************************************************************************
-void LETIMER0_IRQHandler(){
-	//disable peripheral call interrupt
-	CORE_ATOMIC_IRQ_DISABLE();
 
-	//copy the interrupt register (auto clears flag)
-	uint32_t intreg = LETIMER0->IFC;
-
-	//determine which interrupt triggered
-	if(intreg & LETIMER_IFC_UF){
-		//turn the LED off
-		GPIO_PinOutClear(LED0_port, LED0_pin);
+/*
+ * Takes a configuration structure and sets up the timer to produce
+ * interrupts at a given period and pulse length. AKA, int at period,
+ * int at period + pulse length, int at 2*period, etc.
+ * Blocks sleep to specified level, EM4 -> ULFRCO, EM0-3 -> LFXO
+*/
+void letimer_init(struct letimer_config fig){
+	// Choose the Oscillator
+	// Choose the clock based on energy mode
+	uint32_t oscillator;
+	uint16_t frequency;
+	if (fig.block_sleep == EM4)
+	{
+		oscillator = cmuSelect_ULFRCO;
+		frequency = 1000;	//Hz
+		if(fig.period/1000 > 2147000)
+		{
+			while(1); //period is too big, jam the program here
+		}
 	}
-	else{
-		//turn the LED on
-		GPIO_PinOutSet(LED0_port, LED0_pin);
+	else
+	{
+		oscillator = cmuSelect_LFXO;
+		frequency = 32768;	//Hz
+		if(fig.period/1000 > 65535)
+		{
+			while(1); //period is too big, jam the program here
+		}
 	}
 
-	//enable peripheral call interrupt
-	CORE_ATOMIC_IRQ_ENABLE();
-}
-
-
-void letimer_init(){
 	// Calculate Prescaler
-	// Note that compiler optimization just deletes this whole section and stores the values in temporary variables
-	// You will not see this run in debugger. The variables also will not show up. But the registers do get set correctly
-	uint64_t frac = (PERIOD*FREQ)/(65536*1000);	//Calculate the fraction of desired counts to max timer counts
-	prescale = 0;
+	uint64_t frac = (fig.period*frequency)/(65536*1000);	//Calculate the fraction of desired counts to max timer counts
+	uint8_t prescale = 0;
 	while(frac != 0){		//bit shift right until fraction value is zero
 		frac = frac >> 1;	//this rounds the value up to the next power of two
 		prescale++;			//prescale counts the number of divisions by two required to get the desired period in the LETIMER max counts
@@ -60,43 +66,58 @@ void letimer_init(){
 
 
 	// Calculate Timer Comp Values
-	const uint16_t period_cnts = (PERIOD*FREQ)/((1<<prescale) *1000);
-	const uint16_t pulse_cnts = (PULSE_LENGTH*FREQ)/((1<<prescale) *1000);
-
+	const uint16_t period_cnts = (fig.period*frequency)/((1<<prescale) *1000);
+	const uint16_t pulse_cnts = (fig.pulse_width*frequency)/((1<<prescale) *1000);
 
 	// Configure CMU for LETIMER0
-	#if CLOCK == cmuSelect_LFXO						//if because ULFRCO is automatically enabled
-	  CMU_OscillatorEnable(CLOCK, true, true);		//ENABLE OSCILLATOR
-	#endif
-	CMU_ClockSelectSet(cmuClock_LFA, CLOCK);		//SELECT OSC ONTO BUS
-	CMU->LFAPRESC0 = (prescale & 0b00001111);		//Clock Prescaler Set
-	CMU_ClockEnable(cmuClock_HFLE,true);			//Clock to enable register coms
-	CMU_ClockEnable(cmuClock_LETIMER0,true);		//Enable Letimer0 clock
+	if (oscillator == cmuSelect_LFXO)									//if because ULFRCO is automatically enabled
+	{
+		CMU_OscillatorEnable((CMU_Select_TypeDef)oscillator, true, true);//ENABLE OSCILLATOR
+	}
+	CMU_ClockSelectSet(cmuClock_LFA, (CMU_Select_TypeDef)oscillator);	//SELECT OSC ONTO BUS
+	CMU->LFAPRESC0 = (prescale & 0b00001111);								//Clock Prescaler Set
+	CMU_ClockEnable(cmuClock_HFLE,true);									//Clock to enable register coms
+	CMU_ClockEnable(cmuClock_LETIMER0,true);								//Enable Letimer0 clock
 
 
 	// Initialize LETIMER0
-	MSC->LOCK = MSC_UNLOCK_CODE;		//Unlock the memory controller registers to allow writing
-	MSC->CTRL |= MSC_CTRL_IFCREADCLEAR;	//Set the memory controller to auto clear interrupt flags after reading them
-	MSC->LOCK = 1;						//Re-Lock the memory controller registers
 	LETIMER0->CMD = LETIMER_CMD_STOP;	//Make sure LETIMER0 is stopped
 
 
 	// Set up LETIMER0 Config Struct
-	const LETIMER_Init_TypeDef timer0 = {.enable = false,
+	LETIMER_Init_TypeDef timer0 = {.enable = false,
 										  .comp0Top = true};
 
 	// Configure LETIMER0 Registers
+	if (fig.pulse_width != 0)					//If the pulse width is non-zero, configure comp1
+	{
+		LETIMER_CompareSet(LETIMER0,1,pulse_cnts);
+	}
+
+	if (fig.oneshot == true)
+	{
+		timer0.repMode = letimerRepeatOneshot;		//Set rep mode to one shot
+	}
+	else
+	{
+		timer0.repMode = letimerRepeatFree;			//Set rep mode to free running
+	}
+	LETIMER_RepeatSet(LETIMER0,0,1);			//Set rep counter to 1 for oneshot (also needs to be non zero for free run)
 	LETIMER_CompareSet(LETIMER0,0,period_cnts);	//Set the period comparator
-	LETIMER_CompareSet(LETIMER0,1,pulse_cnts);	//Set the pulse length comparator
-	LETIMER_RepeatSet(LETIMER0,0,1);			//Set rep counter to non 0 for free running mode
 	LETIMER_Init(LETIMER0,&timer0);				//Initialize timer with set values from above
 
 
 	// Interrupt Configuration
-	LETIMER0->IFC = LETIMER_IFC_UF | LETIMER_IFC_COMP1;	//clear int flags
-	LETIMER0->IEN = LETIMER_IEN_UF | LETIMER_IEN_COMP1;	//enable int flags
-	blockSleepMode(BLOCK_SLEEP);						//set max sleep mode
-	NVIC_EnableIRQ(LETIMER0_IRQn);						//enable interrupt vector
+	if (fig.pulse_width != 0)					//If the pulse width is non-zero, configure comp1 ints
+	{
+		LETIMER0->IFC = LETIMER_IFC_COMP1;		//clear comp1 flag
+		LETIMER0->IEN |= LETIMER_IEN_COMP1;		//set comp1 enabled
+	}
+
+	LETIMER0->IFC = LETIMER_IFC_UF;				//clear int flags
+	LETIMER0->IEN |= LETIMER_IEN_UF;				//enable int flags
+	blockSleepMode(fig.block_sleep);			//set max sleep mode
+	NVIC_EnableIRQ(LETIMER0_IRQn);				//enable interrupt vector
 
 
 	// Start the Timer

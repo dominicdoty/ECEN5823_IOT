@@ -82,16 +82,21 @@ uint8_t boot_to_dfu = 0;
 #include "em_letimer.h"
 #include "src/letimer.h"
 #include "src/msc.h"
+#include "src/timer.h"
 
 //***********************************************************************************
 // defined files
 //***********************************************************************************
 
+#define FLAG_I2C_BRINGUP	0b0000000000000001
+#define FLAG_I2C_REQ		0b0000000000000010
+#define FLAG_I2C_READ		0b0000000000000100
 
 //***********************************************************************************
 // global variables
 //***********************************************************************************
 
+uint16_t flags = 0;
 
 //***********************************************************************************
 // function prototypes
@@ -109,8 +114,25 @@ void LETIMER0_IRQHandler(){
 	//copy the interrupt register (auto clears flag)
 	uint32_t intreg = LETIMER0->IFC;
 
-	GPIO_PinOutSet(LED0_port, LED0_pin);
-	GPIO_PinOutClear(LED0_port, LED0_pin);
+	//set the flag
+	flags |= FLAG_I2C_BRINGUP;
+
+	//enable peripheral call interrupt
+	CORE_ATOMIC_IRQ_ENABLE();
+}
+
+void TIMER0_IRQHandler(){
+	//disable peripheral call interrupt
+	CORE_ATOMIC_IRQ_DISABLE();
+
+	//copy the interrupt register (auto clears flag)
+	uint32_t intreg = TIMER0->IFC;
+
+	//set the flag
+	flags |= FLAG_I2C_READ;
+
+	//unblock sleep mode (only necessary because of oneshot)
+	unblockSleepMode(EM2);
 
 	//enable peripheral call interrupt
 	CORE_ATOMIC_IRQ_ENABLE();
@@ -141,6 +163,9 @@ int main(void)
   // Initialize stack
   gecko_init(&config);
 
+  // MSC setup
+  msc_ifc_autoclear();
+
   // Initialize LETIMER
   struct letimer_config fig =
   {
@@ -152,11 +177,35 @@ int main(void)
 
   letimer_init(fig);
 
-  // MSC setup
-  msc_ifc_autoclear();
+  // Initialize HFTIMER
+  struct hftimer_config hf_fig =
+  {
+  	.period = 80,
+  	.pulse_width = 0,
+  	.oneshot = true
+  };
+
+  hftimer_init(hf_fig);
+
+
 
   // Sleep
   while (1) {
+	  uint16_t clear_flags = 0;
+
+	  if (flags & FLAG_I2C_BRINGUP == 1)
+	  {
+		  GPIO_PinOutToggle(LED0_port, LED0_pin);
+//		  i2c_bringup();
+		  blockSleepMode(EM2);
+		  TIMER_Enable(TIMER0, true);
+	  }
+	  if (flags & FLAG_I2C_REQ == 1)
+	  {
+//		  i2c_request();
+		  GPIO_PinOutToggle(LED1_port, LED0_pin);
+	  }
+
 	  sleep();
   }
 }

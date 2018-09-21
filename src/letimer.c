@@ -70,18 +70,18 @@ void letimer_init(struct letimer_config fig){
 	const uint16_t pulse_cnts = (fig.pulse_width*frequency)/((1<<prescale) *1000);
 
 	// Configure CMU for LETIMER0
-	if (oscillator == cmuSelect_LFXO)									//if because ULFRCO is automatically enabled
+	if (oscillator == cmuSelect_LFXO)										//if because ULFRCO is automatically enabled
 	{
-		CMU_OscillatorEnable((CMU_Select_TypeDef)oscillator, true, true);//ENABLE OSCILLATOR
+		CMU_OscillatorEnable((CMU_Select_TypeDef)oscillator, true, true);	//ENABLE OSCILLATOR
 	}
-	CMU_ClockSelectSet(cmuClock_LFA, (CMU_Select_TypeDef)oscillator);	//SELECT OSC ONTO BUS
+	CMU_ClockSelectSet(cmuClock_LFA, (CMU_Select_TypeDef)oscillator);		//SELECT OSC ONTO BUS
 	CMU->LFAPRESC0 = (prescale & 0b00001111);								//Clock Prescaler Set
 	CMU_ClockEnable(cmuClock_HFLE,true);									//Clock to enable register coms
 	CMU_ClockEnable(cmuClock_LETIMER0,true);								//Enable Letimer0 clock
 
 
 	// Initialize LETIMER0
-	LETIMER0->CMD = LETIMER_CMD_STOP;	//Make sure LETIMER0 is stopped
+	LETIMER0->CMD = LETIMER_CMD_STOP;			//Make sure LETIMER0 is stopped
 
 
 	// Set up LETIMER0 Config Struct
@@ -96,11 +96,11 @@ void letimer_init(struct letimer_config fig){
 
 	if (fig.oneshot == true)
 	{
-		timer0.repMode = letimerRepeatOneshot;		//Set rep mode to one shot
+		timer0.repMode = letimerRepeatOneshot;	//Set rep mode to one shot
 	}
 	else
 	{
-		timer0.repMode = letimerRepeatFree;			//Set rep mode to free running
+		timer0.repMode = letimerRepeatFree;		//Set rep mode to free running
 	}
 	LETIMER_RepeatSet(LETIMER0,0,1);			//Set rep counter to 1 for oneshot (also needs to be non zero for free run)
 	LETIMER_CompareSet(LETIMER0,0,period_cnts);	//Set the period comparator
@@ -115,7 +115,7 @@ void letimer_init(struct letimer_config fig){
 	}
 
 	LETIMER0->IFC = LETIMER_IFC_UF;				//clear int flags
-	LETIMER0->IEN |= LETIMER_IEN_UF;				//enable int flags
+	LETIMER0->IEN |= LETIMER_IEN_UF;			//enable int flags
 	blockSleepMode(fig.block_sleep);			//set max sleep mode
 	NVIC_EnableIRQ(LETIMER0_IRQn);				//enable interrupt vector
 

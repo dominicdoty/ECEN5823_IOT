@@ -88,9 +88,9 @@ uint8_t boot_to_dfu = 0;
 // defined files
 //***********************************************************************************
 
-#define FLAG_I2C_BRINGUP	0b0000000000000001
-#define FLAG_I2C_REQ		0b0000000000000010
-#define FLAG_I2C_READ		0b0000000000000100
+#define FLAG_I2C_BRINGUP	1
+#define FLAG_I2C_REQ		2
+#define FLAG_I2C_READ		4
 
 //***********************************************************************************
 // global variables
@@ -129,7 +129,7 @@ void TIMER0_IRQHandler(){
 	uint32_t intreg = TIMER0->IFC;
 
 	//set the flag
-	flags |= FLAG_I2C_READ;
+	flags |= FLAG_I2C_REQ;
 
 	//unblock sleep mode (only necessary because of oneshot)
 	unblockSleepMode(EM2);
@@ -193,20 +193,42 @@ int main(void)
   while (1) {
 	  uint16_t clear_flags = 0;
 
-	  if (flags & FLAG_I2C_BRINGUP == 1)
+	  if(flags & FLAG_I2C_BRINGUP)
 	  {
-		  GPIO_PinOutToggle(LED0_port, LED0_pin);
-//		  i2c_bringup();
+		  GPIO_PinOutSet(LED0_port, LED0_pin);
+//		  temp_sensor_on();
 		  blockSleepMode(EM2);
 		  TIMER_Enable(TIMER0, true);
-	  }
-	  if (flags & FLAG_I2C_REQ == 1)
-	  {
-//		  i2c_request();
-		  GPIO_PinOutToggle(LED1_port, LED0_pin);
+		  clear_flags |= FLAG_I2C_BRINGUP;
 	  }
 
+	  if(flags & FLAG_I2C_REQ)
+	  {
+		  GPIO_PinOutSet(LED1_port, LED1_pin);
+//		  i2c_start_bus();
+//		  i2c_write();
+		  clear_flags |= FLAG_I2C_REQ;
+	  }
+
+	  if(flags & FLAG_I2C_READ)
+	  {
+		  GPIO_PinOutClear(LED0_port, LED0_pin);
+		  GPIO_PinOutClear(LED1_port, LED1_pin);
+//		  i2c_read();
+//		  temp_sensor_off();
+		  clear_flags |= FLAG_I2C_READ;
+	  }
+
+	  // Atomic section to clear global flags
+	  CORE_ATOMIC_IRQ_DISABLE();
+	  flags &= ~clear_flags;
+	  CORE_ATOMIC_IRQ_ENABLE();
+
+	  // If all flags have been serviced go to sleep, otherwise start over
+	  if(flags == 0)
+	  {
 	  sleep();
+	  }
   }
 }
 

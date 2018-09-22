@@ -27,6 +27,7 @@
 // Include files
 //***********************************************************************************
 
+#include "main.h"
 #include "em_core.h"
 #include "em_emu.h"
 

@@ -60,11 +60,8 @@ void unblockSleepMode(int8_t minimumMode){
 	//Enable interrupts
 
 	CORE_ATOMIC_IRQ_DISABLE();
-	if(sleep_block_counter[minimumMode] > 0){
-		sleep_block_counter[minimumMode]--;
-	}else{
-		while(1);
-	}
+	ASSERT(sleep_block_counter[minimumMode] > 0);
+	sleep_block_counter[minimumMode]--;
 	CORE_ATOMIC_IRQ_ENABLE();
 }
 

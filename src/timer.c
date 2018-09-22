@@ -34,20 +34,12 @@
 */
 void hftimer_init(struct hftimer_config fig){
 	uint32_t frequency;
-	if(fig.period > 1740)	//Max time you can get in the HFtimer without prescaling the hf bus
-	{
-		while(1);
-	}
+	ASSERT(fig.period < 1740); //Max time you can get in the HFtimer without prescaling the hf bus
 
-	//check that we're using the HFXO for the timer, otherwise jam the program from proceeding
-	if(CMU->HFCLKSTATUS == CMU_HFCLKSTATUS_SELECTED_HFXO)
-	{
-		frequency = 38400000;	//Hz
-	}
-	else
-	{
-		while(1);
-	}
+	//get the current operating frequency of the timer
+	//note that the below calculations are set up assuming a high frequency source (around 38.4 MHz)
+	//using a low frequency source may result in unpredictable behavior
+	frequency = CMU_ClockFreqGet(cmuClock_TIMER0);
 
 	// Calculate Prescaler
 	uint64_t frac = (fig.period*(frequency/65536))/1000;	//Calculate the fraction of desired counts to max timer counts // WORK verify non overflow
@@ -57,10 +49,7 @@ void hftimer_init(struct hftimer_config fig){
 		prescale++;			//prescale counts the number of divisions by two required to get the desired period in the LETIMER max counts
 	}						//prescale register translates this value to powers of two (ie 0->div1, 1->div2, 2->div4, etc.)
 
-	if (prescale > 10)
-	{
-		while(1);			//period is too big, jam program here
-	}
+	ASSERT(prescale <= 10); //max prescaler (this should never happen anyways with the period assert above
 
 	// Calculate Timer Comp Values
 	const uint32_t period_cnts = (fig.period*(frequency/(1<<prescale)))/1000;
@@ -76,11 +65,11 @@ void hftimer_init(struct hftimer_config fig){
 	// Configure TIMER0 Registers				//Clock Prescaler Set
 	TIMER0->CTRL |= ((uint32_t)(prescale & 0b00001111))<<_TIMER_CTRL_PRESC_SHIFT;
 	TIMER0->TOP = period_cnts;					//Set upper timer limit
-	TIMER0->CTRL |= TIMER_CTRL_MODE_DOWN;		//Set for down counting
+	TIMER0->CTRL |= TIMER_CTRL_MODE_UP;		//Set for down counting
 
 	// Interrupt Configuration
-	TIMER0->IFC = TIMER_IFC_UF;					//clear int flags
-	TIMER0->IEN |= TIMER_IEN_UF;				//enable int flags
+	TIMER0->IFC = TIMER_IFC_OF;					//clear int flags
+	TIMER0->IEN |= TIMER_IEN_OF;				//enable int flags
 	NVIC_EnableIRQ(TIMER0_IRQn);				//enable interrupt vector
 
 	if (fig.pulse_width != 0)					//If the pulse width is non-zero, configure comp1 ints

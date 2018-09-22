@@ -83,14 +83,24 @@ uint8_t boot_to_dfu = 0;
 #include "src/letimer.h"
 #include "src/msc.h"
 #include "src/timer.h"
+#include "src/load_pow_manage.h"
+#include "src/i2c.h"
 
 //***********************************************************************************
 // defined files
 //***********************************************************************************
 
-#define FLAG_I2C_BRINGUP	1
-#define FLAG_I2C_REQ		2
-#define FLAG_I2C_READ		4
+#define FLAG_I2C_BRINGUP	0b0000000000000001
+#define FLAG_I2C_REQ		0b0000000000000010
+#define FLAG_I2C_READ		0b0000000000000100
+
+#define I2C_READ_PERIOD		3000	//mS
+#define TEMP_RESET_TIME		80		//mS
+
+#define I2C_ADDR			0x40	//slave address
+#define I2C_TEMP_CMD		0xE3	//command to measure temp. slave expected to bus hold till response ready
+
+#define THRESHOLD_TEMP		30		//temperature below which to turn on LED1
 
 //***********************************************************************************
 // global variables
@@ -107,7 +117,8 @@ uint16_t flags = 0;
 // functions
 //***********************************************************************************
 
-void LETIMER0_IRQHandler(){
+void LETIMER0_IRQHandler()
+{
 	//disable peripheral call interrupt
 	CORE_ATOMIC_IRQ_DISABLE();
 
@@ -121,7 +132,8 @@ void LETIMER0_IRQHandler(){
 	CORE_ATOMIC_IRQ_ENABLE();
 }
 
-void TIMER0_IRQHandler(){
+void TIMER0_IRQHandler()
+{
 	//disable peripheral call interrupt
 	CORE_ATOMIC_IRQ_DISABLE();
 
@@ -131,8 +143,23 @@ void TIMER0_IRQHandler(){
 	//set the flag
 	flags |= FLAG_I2C_REQ;
 
-	//unblock sleep mode (only necessary because of oneshot)
-	unblockSleepMode(EM2);
+	//enable peripheral call interrupt
+	CORE_ATOMIC_IRQ_ENABLE();
+}
+
+void I2C0_IRQHandler()
+{
+	//disable peripheral call interrupt
+	CORE_ATOMIC_IRQ_DISABLE();
+
+	//copy the interrupt register (auto clears flag)
+	uint32_t intreg = I2C0->IFC;
+
+	//clear the interrupt enable
+	I2C0->IEN &= ~I2C_IEN_RXDATAV;
+
+	//set the flag
+	flags |= FLAG_I2C_READ;
 
 	//enable peripheral call interrupt
 	CORE_ATOMIC_IRQ_ENABLE();
@@ -170,7 +197,7 @@ int main(void)
   struct letimer_config fig =
   {
   	.block_sleep = EM3,	//sleep mode you cannot go down to
-  	.period = 3000,		//mS
+  	.period = I2C_READ_PERIOD,		//mS
   	.pulse_width = 0,	//mS
 	.oneshot = false
   };
@@ -180,42 +207,54 @@ int main(void)
   // Initialize HFTIMER
   struct hftimer_config hf_fig =
   {
-  	.period = 80,
+  	.period = TEMP_RESET_TIME,
   	.pulse_width = 0,
   	.oneshot = true
   };
 
   hftimer_init(hf_fig);
 
+  // Initialize the I2C Peripheral
+  i2c_init();
 
+  // Initialize the Temp Sensor Power Pin
+  temp_sensor_init();
 
-  // Sleep
+  // Scheduler
   while (1) {
 	  uint16_t clear_flags = 0;
 
 	  if(flags & FLAG_I2C_BRINGUP)
 	  {
-		  GPIO_PinOutSet(LED0_port, LED0_pin);
-//		  temp_sensor_on();
-		  blockSleepMode(EM2);
-		  TIMER_Enable(TIMER0, true);
-		  clear_flags |= FLAG_I2C_BRINGUP;
+		  temp_sensor_on();						//turn on the temp sensor
+		  blockSleepMode(EM2);					//block us into EM1 to run high freq timer
+		  TIMER_Enable(TIMER0, true);			//start the timer
+		  clear_flags |= FLAG_I2C_BRINGUP;		//store to clear later
 	  }
 
 	  if(flags & FLAG_I2C_REQ)
 	  {
-		  GPIO_PinOutSet(LED1_port, LED1_pin);
-//		  i2c_start_bus();
-//		  i2c_write();
-		  clear_flags |= FLAG_I2C_REQ;
+		  unblockSleepMode(EM2);					//unblock EM2 from high freq timer
+		  i2c_start_bus();							//enable bus, toggle to reset slaves, send abort, block off EM2
+		  i2c_read_command(I2C_ADDR, I2C_TEMP_CMD);	//request the temperature from the sensor,
+		  clear_flags |= FLAG_I2C_REQ;				//does not wait for the result to return (handled by interrupt)
 	  }
 
 	  if(flags & FLAG_I2C_READ)
 	  {
-		  GPIO_PinOutClear(LED0_port, LED0_pin);
-		  GPIO_PinOutClear(LED1_port, LED1_pin);
-//		  i2c_read();
-//		  temp_sensor_off();
+		  float reading = i2c_read_temp();		//take the reading and convert to float deg C
+		  temp_sensor_off();					//conversion complete, data received. shut down sensor
+		  i2c_stop_bus();						//disable bus, abort, disable, remove block on EM2
+
+		  if(reading < THRESHOLD_TEMP)			//enable the LED based on temperature
+		  {
+			  GPIO_PinOutSet(LED1_port, LED1_pin);
+		  }
+		  else
+		  {
+			  GPIO_PinOutClear(LED1_port, LED1_pin);
+		  }
+
 		  clear_flags |= FLAG_I2C_READ;
 	  }
 

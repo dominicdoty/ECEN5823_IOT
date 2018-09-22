@@ -41,19 +41,13 @@ void letimer_init(struct letimer_config fig){
 	{
 		oscillator = cmuSelect_ULFRCO;
 		frequency = 1000;	//Hz
-		if(fig.period/1000 > 2147000)
-		{
-			while(1); //period is too big, jam the program here
-		}
+		ASSERT(fig.period/1000 < 2147000);
 	}
 	else
 	{
 		oscillator = cmuSelect_LFXO;
 		frequency = 32768;	//Hz
-		if(fig.period/1000 > 65535)
-		{
-			while(1); //period is too big, jam the program here
-		}
+		ASSERT(fig.period/1000 < 65535);
 	}
 
 	// Calculate Prescaler

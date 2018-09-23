@@ -21,6 +21,7 @@
 // defined files
 //***********************************************************************************
 
+// I2C pin definitions and default states
 #define I2C_SCL_PORT	gpioPortC
 #define I2C_SCL_PIN		10
 #define I2C_SCL_LOC		14
@@ -32,7 +33,8 @@
 #define I2C_SDA_DEFAULT	true
 
 #define I2C_RW_BIT		0b00000001
-#define I2C_CLOCK_DIV	4 //9 works with standard pulse aspect ratio
+#define I2C_CLOCK_DIV	4 	//9 works with standard pulse aspect ratio
+							//4 with fast pulse aspect ratio produces ~400kHz I2C clock
 
 //***********************************************************************************
 // global variables

@@ -1,5 +1,7 @@
 #include "assert.h"
 
+
+// If debugging turned on, define the real assert function
 #if ASSERT_DEBUG
 
 // Put program in infinite loop if arg is false

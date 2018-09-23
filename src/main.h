@@ -5,6 +5,8 @@
 // Include files
 //***********************************************************************************
 
+#define ASSERT_DEBUG false
+
 #include <stdint.h>
 #include <stdbool.h>
 #include "assert.h"

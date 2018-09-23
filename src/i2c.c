@@ -26,6 +26,12 @@
 // functions
 //***********************************************************************************
 
+/*
+ * Initializes the I2C bus (pins defined in header)
+ * Assumes HF clock is enabled, checks/enables HFPERCLK
+ * Configures I2C pins (but does not enable them, to allow manual toggling)
+ * Sets TXBIL flag to happen on half full TX register (useful since we send 3 bytes, 2 byte register)
+*/
 void i2c_init()
 {
 	//make sure clock branch is on
@@ -49,10 +55,16 @@ void i2c_init()
 	I2C0->CLKDIV = I2C_CLOCK_DIV;
 
 	//configure I2C interrupts
-	I2C0->IEN |= I2C_IEN_RXDATAV;
 	NVIC_EnableIRQ(I2C0_IRQn);
 }
 
+/*
+ * Toggles I2C bus to reset slaves
+ * Enables I2C pin connections to peripheral
+ * Enables I2C
+ * Sends Abort to clear bus
+ * Blocks EM2
+*/
 void i2c_start_bus()
 {
 	// Toggle the clock pin to reset all the slaves
@@ -67,26 +79,52 @@ void i2c_start_bus()
 	blockSleepMode(EM2);
 }
 
+/*
+ * Sends the given slave a read command for the given address:
+ * START
+ * SLAVE_ADDR + W
+ * COMMAND
+ * RSTART
+ * SlAVE_ADDR + R
+ * Enables RX data interrupt (to accomodate ACKing)
+ * Does not wait for response
+*/
 void i2c_read_command(uint8_t slave_address, uint8_t command)
 {
-	I2C0->CMD = I2C_CMD_START;						//start
-	I2C0->TXDATA = (slave_address << 1);
-	I2C0->TXDATA = command;
+	I2C0->CMD = I2C_CMD_START;							//start
+	I2C0->TXDATA = (slave_address << 1);				//send address with W bit
+	I2C0->TXDATA = command;								//send command
 	while(!(I2C0->STATUS & I2C_STATUS_TXC));			//idle till TX complete
-	I2C0->CMD = I2C_CMD_START;
-	I2C0->TXDATA = (slave_address << 1) | I2C_RW_BIT;	//slave address write to buffer
-	I2C0->IEN |= I2C_IEN_RXDATAV;
+	I2C0->CMD = I2C_CMD_START;							//restart
+	I2C0->TXDATA = (slave_address << 1) | I2C_RW_BIT;	//send address with R bit
+	I2C0->IEN |= I2C_IEN_RXDATAV;						//enable recieve interrupt
 }
 
+/*
+ * Sends the given slave a written command not expecting a response:
+ * START
+ * SLAVE_ADDR + W
+ * COMMAND
+ * STOP
+*/
 void i2c_command(uint8_t slave_address, uint8_t command)
 {
 	I2C0->CMD = I2C_CMD_START;						//start
-	I2C0->TXDATA = slave_address & ~I2C_RW_BIT;
-	I2C0->TXDATA = command;
+	I2C0->TXDATA = (slave_address << 1);			//send address with W bit
+	I2C0->TXDATA = command;							//send command
 	while(~(I2C0->STATUS & I2C_STATUS_TXC));		//idle till TX done
-	I2C0->CMD = I2C_CMD_STOP;
+	I2C0->CMD = I2C_CMD_STOP;						//stop
 }
 
+/*
+ * Read temperature from the RX buffer (2 bytes) with an ACK,NACK,STOP:
+ * READ BYTE 1
+ * ACK
+ * READ BYTE 2
+ * NACK
+ * STOP
+ * Convert read bytes to temperature in C
+*/
 float i2c_read_temp()
 {
 	uint16_t reading = (I2C0->RXDATA) << 8;				//read the MSB
@@ -96,11 +134,15 @@ float i2c_read_temp()
 	I2C0->CMD = I2C_CMD_NACK;							//nack it
 	while(I2C0->STATUS & I2C_STATUS_PNACK);				//wait for nack
 	I2C0->CMD = I2C_CMD_STOP;							//send stop
-	float temp = (((reading*17572)/65536) - 4685)/100;	//convert to temp while waiting
+	float temp = (((reading*175.72)/65536) - 46.85);	//convert to temp while waiting
 	while(I2C0->STATUS & I2C_STATUS_PSTOP);				//wait for stop (if necessary)
 	return temp;										//return temperature
 }
 
+/*
+ * Stop the bus by issuing an abort, disabling I2C, and disabling the pins
+ * pins are diabled so they're ready for manual toggling next time
+*/
 void i2c_stop_bus()
 {
 	I2C0->CMD = I2C_CMD_ABORT;

@@ -32,7 +32,7 @@
  * Sets the IFC Read Clear Flag
  * Interrupt Flag Clear register will mirror the Interrupt Flag register
  * When Interrupt Flag Clear register is read, it will automatically clear all set flags after read
- */
+*/
 void msc_ifc_autoclear()
 {
 	MSC->LOCK = MSC_UNLOCK_CODE;		//Unlock the memory controller registers to allow writing

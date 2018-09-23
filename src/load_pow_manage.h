@@ -18,6 +18,7 @@
 // defined files
 //***********************************************************************************
 
+//set the load pin, port, and default pin state
 #define LOAD_PIN		15
 #define LOAD_PORT		gpioPortD
 #define LOAD_DEFAULT	false

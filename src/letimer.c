@@ -30,7 +30,12 @@
  * Takes a configuration structure and sets up the timer to produce
  * interrupts at a given period and pulse length. AKA, int at period,
  * int at period + pulse length, int at 2*period, etc.
- * Blocks sleep to specified level, EM4 -> ULFRCO, EM0-3 -> LFXO
+ * Auto selects oscillator based on sleep  EM4 -> ULFRCO, EM0-3 -> LFXO
+ * Auto calculates prescaler and period and pulse counts
+ * If freerunning, blocks sleep and starts timer
+ * If oneshot, does not block sleep and does not start timer
+ * With compiler optimization enabled and constant numbers filled into struct "fig"
+ * most of this work is done at compile time and removed from the code
 */
 void letimer_init(struct letimer_config fig){
 	// Choose the Oscillator
@@ -108,13 +113,16 @@ void letimer_init(struct letimer_config fig){
 		LETIMER0->IEN |= LETIMER_IEN_COMP1;		//set comp1 enabled
 	}
 
-	LETIMER0->IFC = LETIMER_IFC_UF;				//clear int flags
-	LETIMER0->IEN |= LETIMER_IEN_UF;			//enable int flags
-	blockSleepMode(fig.block_sleep);			//set max sleep mode
+	LETIMER0->IFC = LETIMER_IFC_UF;				//clear underflow flag
+	LETIMER0->IEN |= LETIMER_IEN_UF;			//enable underflow flag
+
 	NVIC_EnableIRQ(LETIMER0_IRQn);				//enable interrupt vector
 
+	if (fig.oneshot != true)					//only start the timer/set sleep mode if free running
+	{
+	blockSleepMode(fig.block_sleep);			//set max sleep mode
+	LETIMER0->CMD = LETIMER_CMD_START;			//start the LETIMER0
+	}
 
-	// Start the Timer
-	LETIMER0->CMD = LETIMER_CMD_START;	//start the LETIMER0
-	while((LETIMER0->SYNCBUSY) & 1);	//twiddle thumbs while LETIMER registers sync
+	while((LETIMER0->SYNCBUSY) & 1);			//twiddle thumbs to ensure everything is setup before return
 }

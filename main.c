@@ -100,7 +100,7 @@ uint8_t boot_to_dfu = 0;
 #define I2C_ADDR			0x40	//slave address
 #define I2C_TEMP_CMD		0xE3	//command to measure temp. slave expected to bus hold till response ready
 
-#define THRESHOLD_TEMP		30		//temperature below which to turn on LED1
+#define THRESHOLD_TEMP		27		//temperature below which to turn on LED1
 
 //***********************************************************************************
 // global variables
@@ -117,12 +117,16 @@ uint16_t flags = 0;
 // functions
 //***********************************************************************************
 
+// all interrupts are declared here as this is where
+// custom stuff for the timers and I2C is implemented
+
 void LETIMER0_IRQHandler()
 {
 	//disable peripheral call interrupt
 	CORE_ATOMIC_IRQ_DISABLE();
 
 	//copy the interrupt register (auto clears flag)
+	//this produces an unused variable warning, but its faster than R IF -> W IFC
 	uint32_t intreg = LETIMER0->IFC;
 
 	//set the flag
@@ -138,6 +142,7 @@ void TIMER0_IRQHandler()
 	CORE_ATOMIC_IRQ_DISABLE();
 
 	//copy the interrupt register (auto clears flag)
+	//this produces an unused variable warning, but its faster than R IF -> W IFC
 	uint32_t intreg = TIMER0->IFC;
 
 	//set the flag
@@ -153,9 +158,12 @@ void I2C0_IRQHandler()
 	CORE_ATOMIC_IRQ_DISABLE();
 
 	//copy the interrupt register (auto clears flag)
+	//this produces an unused variable warning, but its faster than R IF -> W IFC
 	uint32_t intreg = I2C0->IFC;
 
 	//clear the interrupt enable
+	//(this is necessary since RXDATAV can only be cleared by
+	// reading the RX buffer and I don't want to do that in the interrupt)
 	I2C0->IEN &= ~I2C_IEN_RXDATAV;
 
 	//set the flag
@@ -169,58 +177,62 @@ void I2C0_IRQHandler()
 // main
 //***********************************************************************************
 
-/**
- * @brief  Main function
- */
-
 int main(void)
 {
-  // Initialize device
+  // Initialize device //
   initMcu();
 
-  // Initialize board
+
+  // Initialize board //
   initBoard();
 
-  // Initialize GPIO
+
+  // Initialize GPIO //
   gpio_init();
 
-  // Initialize clocks
+
+  // Initialize clocks //
   cmu_init();
 
-  // Initialize stack
+
+  // Initialize stack //
   gecko_init(&config);
 
-  // MSC setup
+
+  // MSC setup //
   msc_ifc_autoclear();
 
-  // Initialize LETIMER
+
+  // Initialize LETIMER //
   struct letimer_config fig =
   {
-  	.block_sleep = EM3,	//sleep mode you cannot go down to
-  	.period = I2C_READ_PERIOD,		//mS
-  	.pulse_width = 0,	//mS
+  	.block_sleep = EM4,			//sleep mode you cannot go down to
+  	.period = I2C_READ_PERIOD,	//mS
+  	.pulse_width = 0,			//mS
 	.oneshot = false
   };
-
   letimer_init(fig);
 
-  // Initialize HFTIMER
+
+  // Initialize HFTIMER //
   struct hftimer_config hf_fig =
   {
   	.period = TEMP_RESET_TIME,
   	.pulse_width = 0,
   	.oneshot = true
   };
-
   hftimer_init(hf_fig);
 
-  // Initialize the I2C Peripheral
+
+  // Initialize the I2C Peripheral //
   i2c_init();
 
-  // Initialize the Temp Sensor Power Pin
+
+  // Initialize the Temp Sensor Power Pin //
   temp_sensor_init();
 
-  // Scheduler
+
+  // Scheduler //
   while (1) {
 	  uint16_t clear_flags = 0;
 
@@ -228,7 +240,7 @@ int main(void)
 	  {
 		  temp_sensor_on();						//turn on the temp sensor
 		  blockSleepMode(EM2);					//block us into EM1 to run high freq timer
-		  TIMER_Enable(TIMER0, true);			//start the timer
+		  TIMER_Enable(TIMER0, true);			//start the timer (set for 80mS in config above)
 		  clear_flags |= FLAG_I2C_BRINGUP;		//store to clear later
 	  }
 
